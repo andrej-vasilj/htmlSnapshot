@@ -85,6 +85,16 @@
                 methods.strokeRectR(bounds, borders, styles);
             }
             
+            //draw any text (define text as any html without < inside)
+            if ( !this.html().match(/</)){
+                context.font = styles.font;
+                context.fillStyle = styles.fontColor;
+                context.textAlign = styles.fontAlign;
+                context.textBaseline = "middle";
+                var center = methods.getElementCenter( this );
+                context.fillText( this.html(), center.x, center.y);
+            }
+        
             //subsequently render the child elements
             this.children().each( function() {
                 methods.recursiveRender.apply( $(this) );
@@ -174,12 +184,14 @@
                 /^(-o-radial-gradient)/,
                 /^(-ms-radial-gradient)/,
                 /^(-radial-gradient)/,
+                /^(radial-gradient)/,
                 /^(-moz-linear-gradient)/,
                 /^(-webkit-linear-gradient)/,
                 /^(-o-linear-gradient)/,
                 /^(-ms-linear-gradient)/,
                 /^(-linear-gradient)/,
-                /^(linear-gradient)/
+                /^(linear-gradient)/,
+                /^(webkit-gradient)/
             ];
          
             //find out if we have any gradient defined
@@ -197,15 +209,21 @@
             var retrieved_properties = [];
             var gradient_properties = [];
             var gradient = null;
+            var bgImage = null;
             
+            //first try to generate a gradient if the css style defines one
             if (grad_flag){
                 
                 switch(x){
                     
-                    //mozilla linear gradient
-                    case 5:
+                    //most linear gradient
+                    case 6:
+                    case 7:
+                    case 8:
+                    case 9:
                     case 10:
-                        retrieved_properties = methods.parseGradient(css, ['(\\d{1,3})deg,', '(rgb\\(\\d{1,3},\\s\\d{1,3},\\s\\d{1,3}\\)\\s\\d{1,3})']);
+                    case 11:
+                        retrieved_properties = methods.regexParse(css, ['(\\d{1,3})deg,', '(rgb\\(\\d{1,3},\\s\\d{1,3},\\s\\d{1,3}\\)\\s\\d{1,3})']);
                         
                         //parse the mozilla properties into properties that can be used by the canvas
                         gradient_properties.push( methods.getPointsFromDegrees( element, retrieved_properties[0] ) );
@@ -216,16 +234,49 @@
                         //create the gradient
                         gradient = methods.createLinearGradient(gradient_properties);
                     break;
+                    
+                    //radial gradients
+                    case 5:
+                        retrieved_properties = methods.regexParse(css, ['(rgb\\(\\d{1,3},\\s\\d{1,3},\\s\\d{1,3}\\)\\s\\d{1,3})']);
                         
+                        //make a start and end circle
+                        var endCircle = methods.getElementCenter( element );
+                        var startCircle = {
+                            x : endCircle.x,
+                            y : endCircle.y,
+                            radius : 1
+                        }
+                        gradient_properties.push(startCircle, endCircle);
+                        
+                        //get the color stops
+                        for ( var y = 0; y < retrieved_properties.length; y++ ){
+                            gradient_properties.push(methods.rgbStopToHexStop( retrieved_properties[y] ));
+                        }
+                        
+                        //create the gradient
+                        gradient = methods.createRadialGradient(gradient_properties);
+                        
+                    break;
                 }
-            } 
-            //methods.dump(gradient_properties);
+            } else if (css.match(/^(url)/)){
+                //check if we have a background image instead
+                
+            }
+            
+            //create a font style from the css values
+            var font = element.css('font-weight') + " " + 
+                    element.css('font-size') + " " + 
+                    element.css('font-family');
+                    
             return {
                 backgroundColor: element.css('backgroundColor'),
-                background: gradient
+                background: gradient,
+                font: font,
+                fontColor: element.css('color'),
+                fontAlign: element.css('text-align')
             };
         },
-        
+               
         //get the center point of an element
         getElementCenter : function ( element ){
             
@@ -268,22 +319,46 @@
             return grd;
         },
         
-        //parse gradient and return the properties
-        parseGradient : function ( css, regexps ){
+        //create a radial gradient for the canvas
+        createRadialGradient : function (properties){
             
-            var gradient_properties = [];
+            var startCircle = properties[0];
+            var endCircle = properties[1];
+            
+            //create the gradient
+            var grd = context.createRadialGradient(startCircle.x, startCircle.y, startCircle.radius, endCircle.x, endCircle.y, endCircle.radius);
+            
+            //add all of the stops
+            for ( var x = 2; x < properties.length; x++){
+                grd.addColorStop(properties[x].stop, properties[x].color);
+            }
+  
+            return grd;
+        },
+        
+        //use a regular expression to collect information from a string
+        regexParse : function ( css, regexps ){
+            
+            var properties = [];
             
             for ( var x = 0; x < regexps.length; x++ ){
                 
                 css.replace(
                     new RegExp(regexps[x], "g"),
                     function($0, $1, $2, $3) { 
-                        gradient_properties.push($1);
+                        properties.push($1);
                     }
                 );       
             }
             
-            return gradient_properties;
+            return properties;
+        },
+        
+        //use regex to parse info
+        parseGradientStops: function (css) {
+            
+     
+            
         },
         
         //get the properties of the border
